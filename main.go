@@ -23,7 +23,6 @@ import (
 	"github.com/richardwilkes/toolbox/xio"
 	"github.com/richardwilkes/toolbox/xio/fs"
 	"github.com/yookoala/realpath"
-
 	"golang.org/x/image/draw"
 )
 
