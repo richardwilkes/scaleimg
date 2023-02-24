@@ -6,7 +6,6 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
-	_ "image/png"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -83,11 +82,11 @@ func main() {
 	cmdline.AppIdentifier = "com.trollworks.scaleimg"
 	cl := cmdline.New(true)
 	opts := defaultOptions()
-	cl.NewStringOption(&opts.outputRoot).SetSingle('o').SetName("output_root").SetUsage("Location to store the converted images")
-	cl.NewStringOption(&opts.unsuitableRoot).SetSingle('u').SetName("unsuitable_root").SetUsage("Location to store the images that were unsuitable for conversion")
-	cl.NewIntOption(&opts.inMultiple).SetSingle('i').SetName("in_multiple").SetUsage("Only process image files whose dimensions are exact multiples of this value")
-	cl.NewIntOption(&opts.resizeMultiple).SetSingle('r').SetName("resize_multiple").SetUsage("Resize images to a multiple of this value")
-	cl.NewBoolOption(&opts.half).SetSingle('2').SetName("half").SetUsage("Also process images files whose width or height is half of an exact multiple of the in_multiple value")
+	cl.NewGeneralOption(&opts.outputRoot).SetSingle('o').SetName("output_root").SetUsage("Location to store the converted images")
+	cl.NewGeneralOption(&opts.unsuitableRoot).SetSingle('u').SetName("unsuitable_root").SetUsage("Location to store the images that were unsuitable for conversion")
+	cl.NewGeneralOption(&opts.inMultiple).SetSingle('i').SetName("in_multiple").SetUsage("Only process image files whose dimensions are exact multiples of this value")
+	cl.NewGeneralOption(&opts.resizeMultiple).SetSingle('r').SetName("resize_multiple").SetUsage("Resize images to a multiple of this value")
+	cl.NewGeneralOption(&opts.half).SetSingle('2').SetName("half").SetUsage("Also process images files whose width or height is half of an exact multiple of the in_multiple value")
 	paths := cl.Parse(os.Args[1:])
 	opts.validate()
 
@@ -249,7 +248,7 @@ func loadImage(path string) (image.Image, error) {
 
 func writePNG(opts *options, path string, img image.Image) error {
 	p := transformPathForImage(opts, path, img)
-	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return errs.Wrap(err)
 	}
 	f, err := os.Create(p)
@@ -258,11 +257,11 @@ func writePNG(opts *options, path string, img image.Image) error {
 	}
 	if err = png.Encode(f, img); err != nil {
 		xio.CloseIgnoringErrors(f)
-		os.Remove(p) //nolint:errchk
+		os.Remove(p) //nolint:errcheck // Don't care
 		return errs.Wrap(err)
 	}
 	if err = f.Close(); err != nil {
-		os.Remove(p) //nolint:errchk
+		os.Remove(p) //nolint:errcheck // Don't care
 		return errs.Wrap(err)
 	}
 	return nil
