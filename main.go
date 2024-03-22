@@ -77,7 +77,7 @@ func (o *options) validate() {
 
 func main() {
 	cmdline.AppVersion = "0.1"
-	cmdline.CopyrightYears = "2019"
+	cmdline.CopyrightStartYear = "2019"
 	cmdline.CopyrightHolder = "Richard A. Wilkes"
 	cmdline.AppIdentifier = "com.trollworks.scaleimg"
 	cl := cmdline.New(true)
