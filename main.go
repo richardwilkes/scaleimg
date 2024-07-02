@@ -6,6 +6,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,7 +17,7 @@ import (
 	"github.com/richardwilkes/toolbox/atexit"
 	"github.com/richardwilkes/toolbox/cmdline"
 	"github.com/richardwilkes/toolbox/errs"
-	"github.com/richardwilkes/toolbox/log/jot"
+	"github.com/richardwilkes/toolbox/fatal"
 	"github.com/richardwilkes/toolbox/taskqueue"
 	"github.com/richardwilkes/toolbox/txt"
 	"github.com/richardwilkes/toolbox/xio"
@@ -54,25 +55,30 @@ func defaultOptions() *options {
 
 func (o *options) validate() {
 	if o.outputRoot == "" {
-		jot.Fatal(1, "output_root may not be empty")
+		fatalWithMsg("output_root may not be empty")
 	}
 	if o.unsuitableRoot == "" {
-		jot.Fatal(1, "unsuitable_root may not be empty")
+		fatalWithMsg("unsuitable_root may not be empty")
 	}
 	if o.inMultiple < 1 {
-		jot.Fatal(1, "must specify an in_multiple value greater than 0")
+		fatalWithMsg("must specify an in_multiple value greater than 0")
 	}
 	if o.resizeMultiple < 1 {
-		jot.Fatal(1, "must specify an resize_multiple value greater than 0")
+		fatalWithMsg("must specify an resize_multiple value greater than 0")
 	}
 	if o.half {
 		if o.inMultiple%2 == 1 {
-			jot.Fatal(1, "must specify an even value for in_multiple when half is set")
+			fatalWithMsg("must specify an even value for in_multiple when half is set")
 		}
 		if o.resizeMultiple%2 == 1 {
-			jot.Fatal(1, "must specify an even value for resize_multiple when half is set")
+			fatalWithMsg("must specify an even value for resize_multiple when half is set")
 		}
 	}
+}
+
+func fatalWithMsg(msg string) {
+	slog.Error(msg)
+	atexit.Exit(1)
 }
 
 func main() {
@@ -93,7 +99,7 @@ func main() {
 	// If no paths specified, use the current directory
 	if len(paths) == 0 {
 		wd, err := os.Getwd()
-		jot.FatalIfErr(err)
+		fatal.IfErr(err)
 		paths = append(paths, wd)
 	}
 
@@ -102,7 +108,7 @@ func main() {
 	set := make(map[string]bool)
 	for _, path := range paths {
 		actual, err := realpath.Realpath(path)
-		jot.FatalIfErr(err)
+		fatal.IfErr(err)
 		if _, exists := set[actual]; !exists {
 			add := true
 			for one := range set {
@@ -125,7 +131,7 @@ func main() {
 	// Collect the files
 	var list []string
 	for path := range set {
-		jot.FatalIfErr(filepath.Walk(path, func(p string, info os.FileInfo, _ error) error {
+		fatal.IfErr(filepath.Walk(path, func(p string, info os.FileInfo, _ error) error {
 			// Prune out hidden directories and files
 			name := info.Name()
 			if strings.HasPrefix(name, ".") {
@@ -150,13 +156,12 @@ func main() {
 	sort.Slice(list, func(i, j int) bool { return txt.NaturalLess(list[i], list[j], true) })
 
 	// Process the files
-	tq := taskqueue.New(taskqueue.RecoveryHandler(func(rErr error) { jot.Error(rErr) }))
+	tq := taskqueue.New(taskqueue.RecoveryHandler(func(rErr error) { errs.Log(rErr) }))
 	var s status
 	for _, path := range list {
 		tq.Submit(newTask(path, opts, &s))
 	}
 	tq.Shutdown()
-	jot.Flush()
 	width := len(fmt.Sprintf("%d", s.total))
 	fmt.Printf(fmt.Sprintf("%%%dd images examined\n", width), s.total)
 	fmt.Printf(fmt.Sprintf("%%%dd images converted\n", width), s.converted)
@@ -177,7 +182,7 @@ func main() {
 
 func rel(base, target string) string {
 	path, err := filepath.Rel(base, target)
-	jot.FatalIfErr(err)
+	fatal.IfErr(err)
 	return path
 }
 
@@ -192,7 +197,7 @@ func processFile(path string, opts *options, s *status) {
 	img, err := loadImage(path)
 	if err != nil {
 		atomic.AddInt32(&s.errors, 1)
-		jot.Error(err)
+		errs.Log(err)
 		return
 	}
 	bounds := img.Bounds()
@@ -205,14 +210,14 @@ func processFile(path string, opts *options, s *status) {
 		draw.CatmullRom.Scale(dst, dstBounds, img, bounds, draw.Over, nil)
 		if err = writePNG(opts, path, dst); err != nil {
 			atomic.AddInt32(&s.errors, 1)
-			jot.Error(errs.Wrap(err))
+			errs.Log(errs.Wrap(err))
 			return
 		}
 		atomic.AddInt32(&s.converted, 1)
 	case width%opts.resizeMultiple == 0 && height%opts.resizeMultiple == 0:
 		if err = fs.Copy(path, transformPathForImage(opts, path, img)); err != nil {
 			atomic.AddInt32(&s.errors, 1)
-			jot.Error(errs.Wrap(err))
+			errs.Log(errs.Wrap(err))
 			return
 		}
 		atomic.AddInt32(&s.alreadyCorrect, 1)
@@ -222,14 +227,14 @@ func processFile(path string, opts *options, s *status) {
 		draw.CatmullRom.Scale(dst, dstBounds, img, bounds, draw.Over, nil)
 		if err = writePNG(opts, path, dst); err != nil {
 			atomic.AddInt32(&s.errors, 1)
-			jot.Error(errs.Wrap(err))
+			errs.Log(errs.Wrap(err))
 			return
 		}
 		atomic.AddInt32(&s.half, 1)
 	default:
 		if err = fs.Copy(path, filepath.Join(opts.unsuitableRoot, path)); err != nil {
 			atomic.AddInt32(&s.errors, 1)
-			jot.Error(errs.Wrap(err))
+			errs.Log(errs.Wrap(err))
 			return
 		}
 		atomic.AddInt32(&s.unsuitable, 1)
