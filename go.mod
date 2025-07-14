@@ -1,16 +1,15 @@
 module github.com/richardwilkes/scaleimg
 
-go 1.22.3
+go 1.24.5
 
 require (
-	github.com/richardwilkes/toolbox v1.114.1
+	github.com/richardwilkes/toolbox/v2 v2.2.0
 	github.com/yookoala/realpath v1.0.0
-	golang.org/x/image v0.18.0
+	golang.org/x/image v0.29.0
 )
 
 require (
-	github.com/pkg/term v1.1.0 // indirect
-	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8 // indirect
-	golang.org/x/sys v0.21.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
+	golang.org/x/exp v0.0.0-20250711185948-6ae5c78190dc // indirect
+	golang.org/x/sys v0.34.0 // indirect
+	golang.org/x/term v0.33.0 // indirect
 )

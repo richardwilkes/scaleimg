@@ -1,12 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,14 +14,12 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/richardwilkes/toolbox/atexit"
-	"github.com/richardwilkes/toolbox/cmdline"
-	"github.com/richardwilkes/toolbox/errs"
-	"github.com/richardwilkes/toolbox/fatal"
-	"github.com/richardwilkes/toolbox/taskqueue"
-	"github.com/richardwilkes/toolbox/txt"
-	"github.com/richardwilkes/toolbox/xio"
-	"github.com/richardwilkes/toolbox/xio/fs"
+	"github.com/richardwilkes/toolbox/v2/errs"
+	"github.com/richardwilkes/toolbox/v2/xfilepath"
+	"github.com/richardwilkes/toolbox/v2/xflag"
+	"github.com/richardwilkes/toolbox/v2/xio"
+	"github.com/richardwilkes/toolbox/v2/xos"
+	"github.com/richardwilkes/toolbox/v2/xstrings"
 	"github.com/yookoala/realpath"
 	"golang.org/x/image/draw"
 )
@@ -55,51 +53,52 @@ func defaultOptions() *options {
 
 func (o *options) validate() {
 	if o.outputRoot == "" {
-		fatalWithMsg("output_root may not be empty")
+		xos.ExitWithMsg("output_root may not be empty")
 	}
 	if o.unsuitableRoot == "" {
-		fatalWithMsg("unsuitable_root may not be empty")
+		xos.ExitWithMsg("unsuitable_root may not be empty")
 	}
 	if o.inMultiple < 1 {
-		fatalWithMsg("must specify an in_multiple value greater than 0")
+		xos.ExitWithMsg("must specify an in_multiple value greater than 0")
 	}
 	if o.resizeMultiple < 1 {
-		fatalWithMsg("must specify an resize_multiple value greater than 0")
+		xos.ExitWithMsg("must specify an resize_multiple value greater than 0")
 	}
 	if o.half {
 		if o.inMultiple%2 == 1 {
-			fatalWithMsg("must specify an even value for in_multiple when half is set")
+			xos.ExitWithMsg("must specify an even value for in_multiple when half is set")
 		}
 		if o.resizeMultiple%2 == 1 {
-			fatalWithMsg("must specify an even value for resize_multiple when half is set")
+			xos.ExitWithMsg("must specify an even value for resize_multiple when half is set")
 		}
 	}
 }
 
-func fatalWithMsg(msg string) {
-	slog.Error(msg)
-	atexit.Exit(1)
-}
-
 func main() {
-	cmdline.AppVersion = "0.1"
-	cmdline.CopyrightStartYear = "2019"
-	cmdline.CopyrightHolder = "Richard A. Wilkes"
-	cmdline.AppIdentifier = "com.trollworks.scaleimg"
-	cl := cmdline.New(true)
+	xos.AppVersion = "0.2"
+	xos.CopyrightStartYear = "2019"
+	xos.CopyrightHolder = "Richard A. Wilkes"
+	xos.AppIdentifier = "com.trollworks.scaleimg"
 	opts := defaultOptions()
-	cl.NewGeneralOption(&opts.outputRoot).SetSingle('o').SetName("output_root").SetUsage("Location to store the converted images")
-	cl.NewGeneralOption(&opts.unsuitableRoot).SetSingle('u').SetName("unsuitable_root").SetUsage("Location to store the images that were unsuitable for conversion")
-	cl.NewGeneralOption(&opts.inMultiple).SetSingle('i').SetName("in_multiple").SetUsage("Only process image files whose dimensions are exact multiples of this value")
-	cl.NewGeneralOption(&opts.resizeMultiple).SetSingle('r').SetName("resize_multiple").SetUsage("Resize images to a multiple of this value")
-	cl.NewGeneralOption(&opts.half).SetSingle('2').SetName("half").SetUsage("Also process images files whose width or height is half of an exact multiple of the in_multiple value")
-	paths := cl.Parse(os.Args[1:])
+	flag.StringVar(&opts.outputRoot, "output", opts.outputRoot, "Location to store the converted images")
+	flag.StringVar(&opts.unsuitableRoot, "unsuitable", opts.unsuitableRoot,
+		"Location to store the images that were unsuitable for conversion")
+	flag.IntVar(&opts.inMultiple, "in_multiple", opts.inMultiple,
+		"Only process image files whose dimensions are exact multiples of this value")
+	flag.IntVar(&opts.resizeMultiple, "resize_multiple", opts.resizeMultiple,
+		"Resize images to a multiple of this value")
+	flag.BoolVar(&opts.half, "half", opts.half,
+		"Also process images files whose width or height is half of an exact multiple of the in_multiple value")
+	xflag.AddVersionFlags()
+	xflag.SetUsage(nil, "", "[path]...")
+	xflag.Parse()
+	paths := flag.Args()
 	opts.validate()
 
 	// If no paths specified, use the current directory
 	if len(paths) == 0 {
 		wd, err := os.Getwd()
-		fatal.IfErr(err)
+		xos.ExitIfErr(err)
 		paths = append(paths, wd)
 	}
 
@@ -108,7 +107,7 @@ func main() {
 	set := make(map[string]bool)
 	for _, path := range paths {
 		actual, err := realpath.Realpath(path)
-		fatal.IfErr(err)
+		xos.ExitIfErr(err)
 		if _, exists := set[actual]; !exists {
 			add := true
 			for one := range set {
@@ -131,7 +130,7 @@ func main() {
 	// Collect the files
 	var list []string
 	for path := range set {
-		fatal.IfErr(filepath.Walk(path, func(p string, info os.FileInfo, _ error) error {
+		xos.ExitIfErr(filepath.Walk(path, func(p string, info os.FileInfo, _ error) error {
 			// Prune out hidden directories and files
 			name := info.Name()
 			if strings.HasPrefix(name, ".") {
@@ -153,10 +152,10 @@ func main() {
 			return nil
 		}))
 	}
-	sort.Slice(list, func(i, j int) bool { return txt.NaturalLess(list[i], list[j], true) })
+	sort.Slice(list, func(i, j int) bool { return xstrings.NaturalLess(list[i], list[j], true) })
 
 	// Process the files
-	tq := taskqueue.New(taskqueue.RecoveryHandler(func(rErr error) { errs.Log(rErr) }))
+	tq := xos.NewTaskQueue(&xos.TaskQueueConfig{})
 	var s status
 	for _, path := range list {
 		tq.Submit(newTask(path, opts, &s))
@@ -177,16 +176,16 @@ func main() {
 	if s.errors > 0 {
 		fmt.Printf(fmt.Sprintf("%%%dd errors\n", width), s.errors)
 	}
-	atexit.Exit(0)
+	xos.Exit(0)
 }
 
 func rel(base, target string) string {
 	path, err := filepath.Rel(base, target)
-	fatal.IfErr(err)
+	xos.ExitIfErr(err)
 	return path
 }
 
-func newTask(path string, opts *options, s *status) taskqueue.Task {
+func newTask(path string, opts *options, s *status) func() {
 	return func() {
 		processFile(path, opts, s)
 	}
@@ -215,7 +214,7 @@ func processFile(path string, opts *options, s *status) {
 		}
 		atomic.AddInt32(&s.converted, 1)
 	case width%opts.resizeMultiple == 0 && height%opts.resizeMultiple == 0:
-		if err = fs.Copy(path, transformPathForImage(opts, path, img)); err != nil {
+		if err = xos.Copy(path, transformPathForImage(opts, path, img)); err != nil {
 			atomic.AddInt32(&s.errors, 1)
 			errs.Log(errs.Wrap(err))
 			return
@@ -232,7 +231,7 @@ func processFile(path string, opts *options, s *status) {
 		}
 		atomic.AddInt32(&s.half, 1)
 	default:
-		if err = fs.Copy(path, filepath.Join(opts.unsuitableRoot, path)); err != nil {
+		if err = xos.Copy(path, filepath.Join(opts.unsuitableRoot, path)); err != nil {
 			atomic.AddInt32(&s.errors, 1)
 			errs.Log(errs.Wrap(err))
 			return
@@ -294,8 +293,8 @@ func transformPathForImage(opts *options, path string, img image.Image) string {
 			heightStr += "½"
 		}
 	}
-	path = strings.ReplaceAll(fs.TrimExtension(path), "_", " ")
+	path = strings.ReplaceAll(xfilepath.TrimExtension(path), "_", " ")
 	dir := filepath.Dir(path)
-	base := txt.CollapseSpaces(strings.TrimSpace(dimensionsRegexp.ReplaceAllLiteralString(filepath.Base(path), "")))
+	base := xstrings.CollapseSpaces(strings.TrimSpace(dimensionsRegexp.ReplaceAllLiteralString(filepath.Base(path), "")))
 	return fmt.Sprintf("%s - %sx%s.png", filepath.Join(opts.outputRoot, dir, base), widthStr, heightStr)
 }
